@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/azemoning/corso/internal/allowlist"
+	"github.com/azemoning/corso/internal/metrics"
 	corsoebpf "github.com/azemoning/corso/pkg/ebpf"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
@@ -98,6 +99,7 @@ func (a *Auditor) scanAndAudit() {
 	}
 
 	elapsed := time.Since(start)
+	metrics.ScanDurationSeconds.Observe(elapsed.Seconds())
 	klog.V(3).Infof("Scan completed in %v, found %d programs", elapsed, len(programs))
 
 	a.mu.Lock()
@@ -135,6 +137,7 @@ func (a *Auditor) scanAndAudit() {
 				// Emit alert
 				a.alertEmitter.EmitViolation(state)
 				state.Alerted = true
+				metrics.ViolationsTotal.WithLabelValues(a.nodeName).Inc()
 			} else {
 				klog.V(3).Infof("eBPF program allowed: id=%d name=%s type=%s",
 					prog.ID, prog.Name, prog.Type)
@@ -150,6 +153,24 @@ func (a *Auditor) scanAndAudit() {
 			klog.V(2).Infof("eBPF program unloaded: id=%d name=%s", id, state.Program.Name)
 			delete(a.knownPrograms, id)
 		}
+	}
+
+	// Update programs_total gauge
+	programsByType := make(map[string]struct{ allowed, denied int })
+	for _, state := range a.knownPrograms {
+		key := state.Program.Type
+		entry := programsByType[key]
+		if state.IsAllowed {
+			entry.allowed++
+		} else {
+			entry.denied++
+		}
+		programsByType[key] = entry
+	}
+	metrics.ProgramsTotal.Reset()
+	for progType, counts := range programsByType {
+		metrics.ProgramsTotal.WithLabelValues(a.nodeName, progType, "true").Set(float64(counts.allowed))
+		metrics.ProgramsTotal.WithLabelValues(a.nodeName, progType, "false").Set(float64(counts.denied))
 	}
 }
 
