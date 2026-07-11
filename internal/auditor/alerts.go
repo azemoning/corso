@@ -55,6 +55,10 @@ func (e *AlertEmitter) EmitViolation(state *ProgramState) {
 		podRef,
 	)
 
+	if state.Context != nil {
+		message += " " + FormatContextString(state.Context)
+	}
+
 	event := &corev1.Event{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("corso-%d-%d-%s", state.Program.ID, time.Now().Unix(), randomSuffix()),

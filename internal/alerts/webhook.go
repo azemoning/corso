@@ -22,14 +22,15 @@ const (
 
 // AlertPayload is the JSON body sent to webhook endpoints
 type AlertPayload struct {
-	Node          string `json:"node"`
-	Timestamp     string `json:"timestamp"`
-	ProgramID     uint32 `json:"program_id"`
-	ProgramName   string `json:"program_name"`
-	ProgramType   string `json:"program_type"`
-	OwnerPod      string `json:"owner_pod"`
+	Node           string `json:"node"`
+	Timestamp      string `json:"timestamp"`
+	ProgramID      uint32 `json:"program_id"`
+	ProgramName    string `json:"program_name"`
+	ProgramType    string `json:"program_type"`
+	OwnerPod       string `json:"owner_pod"`
 	OwnerNamespace string `json:"owner_namespace"`
-	Severity      string `json:"severity"`
+	Severity       string `json:"severity"`
+	Context        string `json:"context,omitempty"`
 }
 
 // WebhookAlert sends violation alerts to an HTTP webhook
@@ -149,13 +150,17 @@ func toSlackPayload(p *AlertPayload) *SlackMessage {
 		owner = fmt.Sprintf("%s/%s", p.OwnerNamespace, p.OwnerPod)
 	}
 
-	return &SlackMessage{
-		Text: fmt.Sprintf(":warning: *%s*: Unauthorized eBPF program detected\n"+
-			"• *Node:* %s\n"+
-			"• *Program:* `%s` (ID: %d, Type: %s)\n"+
-			"• *Owner:* %s\n"+
-			"• *Time:* %s",
-			severity, p.Node, p.ProgramName, p.ProgramID, p.ProgramType,
-			owner, p.Timestamp),
+	text := fmt.Sprintf(":warning: *%s*: Unauthorized eBPF program detected\n"+
+		"• *Node:* %s\n"+
+		"• *Program:* `%s` (ID: %d, Type: %s)\n"+
+		"• *Owner:* %s\n"+
+		"• *Time:* %s",
+		severity, p.Node, p.ProgramName, p.ProgramID, p.ProgramType,
+		owner, p.Timestamp)
+
+	if p.Context != "" {
+		text += fmt.Sprintf("\n• *Context:* %s", p.Context)
 	}
+
+	return &SlackMessage{Text: text}
 }

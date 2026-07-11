@@ -3,6 +3,9 @@ package auditor
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -42,6 +45,8 @@ type Auditor struct {
 type ProgramState struct {
 	Program   *corsoebpf.LoadedProgram
 	PodInfo   *PodInfo
+	Context   *ProcessInfo
+	PID       int32
 	IsAllowed bool
 	FirstSeen time.Time
 	LastSeen  time.Time
@@ -138,6 +143,13 @@ func (a *Auditor) scanAndAudit() {
 			}
 			a.knownPrograms[prog.ID] = state
 
+			// Find PID and collect context
+			if pid := findPIDForProgram(prog.ID); pid > 0 {
+				state.PID = pid
+				ctx := CollectProcessInfo(pid)
+				state.Context = &ctx
+			}
+
 			// Check allowlist
 			checkProg := &allowlist.ProgramToCheck{
 				ID:   prog.ID,
@@ -200,6 +212,10 @@ func (a *Auditor) processSyscallEvents() {
 		klog.V(2).Infof("Real-time eBPF program load: pid=%d prog_id=%d prog_type=%d comm=%s",
 			evt.PID, evt.ProgID, evt.ProgType, evt.Comm)
 
+		// Collect context from the loading process
+		ctx := CollectProcessInfo(int32(evt.PID))
+		klog.V(3).Infof("Process context: %s", FormatContextString(&ctx))
+
 		// Check allowlist for real-time detection
 		checkProg := &allowlist.ProgramToCheck{
 			ID:   evt.ProgID,
@@ -208,8 +224,8 @@ func (a *Auditor) processSyscallEvents() {
 		}
 
 		if !a.allowlist.IsAllowed(checkProg) {
-			klog.Warningf("UNAUTHORIZED eBPF program loaded in real-time: pid=%d prog_id=%d comm=%s",
-				evt.PID, evt.ProgID, evt.Comm)
+			klog.Warningf("UNAUTHORIZED eBPF program loaded in real-time: pid=%d prog_id=%d comm=%s %s",
+				evt.PID, evt.ProgID, evt.Comm, FormatContextString(&ctx))
 			metrics.ViolationsTotal.WithLabelValues(a.nodeName).Inc()
 		}
 	}
@@ -242,6 +258,7 @@ func (a *Auditor) emitWebhookAlert(state *ProgramState) {
 		OwnerPod:       ownerPod,
 		OwnerNamespace: ownerNS,
 		Severity:       "high",
+		Context:        FormatContextString(state.Context),
 	}
 	a.webhookAlert.SendAlert(payload)
 }
@@ -300,4 +317,72 @@ func (a *Auditor) GetSummary() string {
 
 	return fmt.Sprintf("Programs: %d total, %d allowed, %d violations",
 		len(a.knownPrograms), allowed, violations)
+}
+
+// findPIDForProgram scans /proc to find a PID that has the given BPF program ID
+// attached to one of its file descriptors. Returns 0 if not found.
+func findPIDForProgram(progID uint32) int32 {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		klog.V(4).Infof("Failed to read /proc: %v", err)
+		return 0
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		pid, err := strconv.ParseInt(entry.Name(), 10, 32)
+		if err != nil {
+			continue
+		}
+
+		fdDir := fmt.Sprintf("/proc/%d/fd", pid)
+		fds, err := os.ReadDir(fdDir)
+		if err != nil {
+			continue
+		}
+
+		for _, fd := range fds {
+			link, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%s", pid, fd.Name()))
+			if err != nil {
+				continue
+			}
+
+			// BPF program FDs appear as "bpf_prog:<id>" or similar
+			if strings.Contains(link, "bpf_prog") {
+				// Try to extract program ID from the link
+				// Format varies: "bpf_prog:<type> <id>" or "bpf_prog:<id>"
+				if idMatches(link, progID) {
+					return int32(pid)
+				}
+			}
+		}
+	}
+
+	return 0
+}
+
+// idMatches checks if a bpf_prog link contains the given program ID
+func idMatches(link string, progID uint32) bool {
+	// bpf_prog links can look like:
+	// "bpf_prog:<type> <id>"
+	// "bpf_prog:<id>"
+	parts := strings.Split(link, ":")
+	if len(parts) < 2 {
+		return false
+	}
+	idStr := strings.TrimSpace(parts[len(parts)-1])
+	// Handle "type id" format
+	fields := strings.Fields(idStr)
+	if len(fields) == 0 {
+		return false
+	}
+	// The last field should be the ID
+	id, err := strconv.ParseUint(fields[len(fields)-1], 10, 32)
+	if err != nil {
+		return false
+	}
+	return uint32(id) == progID
 }
