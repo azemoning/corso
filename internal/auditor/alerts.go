@@ -2,6 +2,8 @@ package auditor
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -27,6 +29,12 @@ func NewAlertEmitter(clientset kubernetes.Interface, namespace, nodeName string)
 	}
 }
 
+func randomSuffix() string {
+	b := make([]byte, 4)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 // EmitViolation emits a K8s Event for an unauthorized program
 func (e *AlertEmitter) EmitViolation(state *ProgramState) {
 	eventType := corev1.EventTypeWarning
@@ -49,7 +57,7 @@ func (e *AlertEmitter) EmitViolation(state *ProgramState) {
 
 	event := &corev1.Event{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("corso-%d-%d", state.Program.ID, time.Now().Unix()),
+			Name:      fmt.Sprintf("corso-%d-%d-%s", state.Program.ID, time.Now().Unix(), randomSuffix()),
 			Namespace: e.namespace,
 		},
 		InvolvedObject: corev1.ObjectReference{
@@ -80,7 +88,7 @@ func (e *AlertEmitter) EmitViolation(state *ProgramState) {
 func (e *AlertEmitter) EmitInfo(message string) {
 	event := &corev1.Event{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("corso-info-%d", time.Now().Unix()),
+			Name:      fmt.Sprintf("corso-info-%d-%s", time.Now().Unix(), randomSuffix()),
 			Namespace: e.namespace,
 		},
 		InvolvedObject: corev1.ObjectReference{

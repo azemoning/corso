@@ -162,9 +162,10 @@ func (a *Auditor) Stop() {
 func (a *Auditor) GetState() map[uint32]*ProgramState {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	result := make(map[uint32]*ProgramState)
+	result := make(map[uint32]*ProgramState, len(a.knownPrograms))
 	for k, v := range a.knownPrograms {
-		result[k] = v
+		copy := *v
+		result[k] = &copy
 	}
 	return result
 }

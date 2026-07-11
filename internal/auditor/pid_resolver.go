@@ -82,7 +82,9 @@ func (r *PIDResolver) onPodDelete(obj interface{}) {
 // cgroup v2: /sys/fs/cgroup/kubepods.slice/kubepods-pod<uid>.slice/
 // cgroup v1: /sys/fs/cgroup/cpu,cpuacct/kubepods/burstable/pod<uid>/
 func (r *PIDResolver) indexPodCgroups(pod *corev1.Pod) {
-	allStatuses := append(pod.Status.ContainerStatuses, pod.Status.InitContainerStatuses...)
+	allStatuses := make([]corev1.ContainerStatus, 0, len(pod.Status.ContainerStatuses)+len(pod.Status.InitContainerStatuses))
+	allStatuses = append(allStatuses, pod.Status.ContainerStatuses...)
+	allStatuses = append(allStatuses, pod.Status.InitContainerStatuses...)
 	for _, containerStatus := range allStatuses {
 		cid := containerStatus.ContainerID
 		if cid == "" {
@@ -121,13 +123,13 @@ func (r *PIDResolver) removePodCgroups(pod *corev1.Pod) {
 
 // ResolvePID maps a PID to its Kubernetes pod identity
 // Reads /proc/<pid>/cgroup and matches against known pod cgroup paths
-func (r *PIDResolver) ResolvePID(pid int32) (*PodInfo, error) {
+func (r *PIDResolver) ResolvePID(pid int32) (PodInfo, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	cgroupPath, err := readCgroupForPID(pid)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read cgroup for pid %d: %w", pid, err)
+		return PodInfo{}, fmt.Errorf("failed to read cgroup for pid %d: %w", pid, err)
 	}
 
 	// Match cgroup path to pod UID
@@ -135,9 +137,9 @@ func (r *PIDResolver) ResolvePID(pid int32) (*PodInfo, error) {
 		if strings.Contains(cgroupPath, pattern) {
 			pod, ok := r.podByUID[podUID]
 			if !ok {
-				return nil, fmt.Errorf("pod %s not found in cache", podUID)
+				return PodInfo{}, fmt.Errorf("pod %s not found in cache", podUID)
 			}
-			return &PodInfo{
+			return PodInfo{
 				PodName:       pod.Name,
 				PodNamespace:  pod.Namespace,
 				NodeName:      pod.Spec.NodeName,
@@ -149,7 +151,7 @@ func (r *PIDResolver) ResolvePID(pid int32) (*PodInfo, error) {
 	}
 
 	// Check if it's a host process (not in any pod)
-	return nil, fmt.Errorf("pid %d not mapped to any pod (host process)", pid)
+	return PodInfo{}, fmt.Errorf("pid %d not mapped to any pod (host process)", pid)
 }
 
 // readCgroupForPID reads /proc/<pid>/cgroup
