@@ -52,12 +52,12 @@ spec:
               memory: 128Mi
           livenessProbe:
             exec:
-              command: ["/corso-ctl", "count"]
+              command: ["/corsoctl", "count"]
             initialDelaySeconds: 10
             periodSeconds: 30
           readinessProbe:
             exec:
-              command: ["/corso-ctl", "count"]
+              command: ["/corsoctl", "count"]
             initialDelaySeconds: 5
             periodSeconds: 10
           volumeMounts:

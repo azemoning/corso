@@ -1,7 +1,7 @@
 .PHONY: build build-agent build-ctl docker-build test lint
 
 BINARY_AGENT=corso
-BINARY_CTL=corso-ctl
+BINARY_CTL=corsoctl
 IMAGE=corso:latest
 GO=go
 
@@ -11,7 +11,7 @@ build-agent:
 	CGO_ENABLED=0 $(GO) build -o bin/$(BINARY_AGENT) ./cmd/corso/
 
 build-ctl:
-	CGO_ENABLED=0 $(GO) build -o bin/$(BINARY_CTL) ./cmd/corso-ctl/
+	CGO_ENABLED=0 $(GO) build -o bin/$(BINARY_CTL) ./cmd/corsoctl/
 
 docker-build:
 	docker build -t $(IMAGE) .

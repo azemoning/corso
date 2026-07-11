@@ -23,13 +23,13 @@ Corso runs as a DaemonSet on every node and:
 make build
 
 # Scan local node for eBPF programs
-./bin/corso-ctl scan
+./bin/corsoctl scan
 
 # Count programs
-./bin/corso-ctl count
+./bin/corsoctl count
 
 # Show type breakdown
-./bin/corso-ctl stats
+./bin/corsoctl stats
 ```
 
 ## Deploy to Kubernetes
@@ -52,11 +52,11 @@ kubectl -n corso-system logs -l app=corso -f
 
 | Command | Description |
 |---------|-------------|
-| `corso-ctl scan` | Enumerate all loaded eBPF programs on this node |
-| `corso-ctl count` | Quick count of loaded programs |
-| `corso-ctl stats` | Show program type breakdown |
-| `corso-ctl status` | Show Corso audit status |
-| `corso-ctl nodes` | Show eBPF programs per node (requires DaemonSet) |
+| `corsoctl scan` | Enumerate all loaded eBPF programs on this node |
+| `corsoctl count` | Quick count of loaded programs |
+| `corsoctl stats` | Show program type breakdown |
+| `corsoctl status` | Show Corso audit status |
+| `corsoctl nodes` | Show eBPF programs per node (requires DaemonSet) |
 
 ## Architecture
 
