@@ -6,12 +6,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/azemoning/corso/internal/alerts"
 	"github.com/azemoning/corso/internal/allowlist"
 	"github.com/azemoning/corso/internal/metrics"
 	corsoebpf "github.com/azemoning/corso/pkg/ebpf"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 )
+
+const alertThrottleWindow = 5 * time.Minute
 
 // Auditor is the core audit engine
 type Auditor struct {
@@ -26,6 +29,8 @@ type Auditor struct {
 	// State
 	knownPrograms map[uint32]*ProgramState
 	alertEmitter  *AlertEmitter
+	webhookAlert  *alerts.WebhookAlert
+	lastAlertTime map[uint32]time.Time
 	syscallMon    *SyscallMonitor
 
 	// Lifecycle
@@ -61,6 +66,8 @@ func NewAuditor(
 		pollInterval:  pollInterval,
 		knownPrograms: make(map[uint32]*ProgramState),
 		alertEmitter:  NewAlertEmitter(clientset, namespace, nodeName),
+		webhookAlert:  alerts.NewWebhookAlert(),
+		lastAlertTime: make(map[uint32]time.Time),
 		syscallMon:    NewSyscallMonitor(resolver, 256),
 		ctx:           ctx,
 		cancel:        cancel,
@@ -140,14 +147,16 @@ func (a *Auditor) scanAndAudit() {
 
 			state.IsAllowed = a.allowlist.IsAllowed(checkProg)
 
-			if !state.IsAllowed && !state.Alerted {
-				klog.Warningf("UNAUTHORIZED eBPF program detected: id=%d name=%s type=%s",
-					prog.ID, prog.Name, prog.Type)
+			if !state.IsAllowed {
+				if a.shouldAlert(prog.ID) {
+					klog.Warningf("UNAUTHORIZED eBPF program detected: id=%d name=%s type=%s",
+						prog.ID, prog.Name, prog.Type)
 
-				// Emit alert
-				a.alertEmitter.EmitViolation(state)
-				state.Alerted = true
-				metrics.ViolationsTotal.WithLabelValues(a.nodeName).Inc()
+					a.alertEmitter.EmitViolation(state)
+					a.emitWebhookAlert(state)
+					a.lastAlertTime[prog.ID] = time.Now()
+					metrics.ViolationsTotal.WithLabelValues(a.nodeName).Inc()
+				}
 			} else {
 				klog.V(3).Infof("eBPF program allowed: id=%d name=%s type=%s",
 					prog.ID, prog.Name, prog.Type)
@@ -162,6 +171,7 @@ func (a *Auditor) scanAndAudit() {
 		if !aliveIDs[id] {
 			klog.V(2).Infof("eBPF program unloaded: id=%d name=%s", id, state.Program.Name)
 			delete(a.knownPrograms, id)
+			delete(a.lastAlertTime, id)
 		}
 	}
 
@@ -203,6 +213,37 @@ func (a *Auditor) processSyscallEvents() {
 			metrics.ViolationsTotal.WithLabelValues(a.nodeName).Inc()
 		}
 	}
+}
+
+// shouldAlert returns true if enough time has passed since the last alert for this program
+func (a *Auditor) shouldAlert(progID uint32) bool {
+	last, ok := a.lastAlertTime[progID]
+	if !ok {
+		return true
+	}
+	return time.Since(last) >= alertThrottleWindow
+}
+
+// emitWebhookAlert sends a violation alert to the configured webhook
+func (a *Auditor) emitWebhookAlert(state *ProgramState) {
+	ownerPod := ""
+	ownerNS := ""
+	if state.PodInfo != nil {
+		ownerPod = state.PodInfo.PodName
+		ownerNS = state.PodInfo.PodNamespace
+	}
+
+	payload := &alerts.AlertPayload{
+		Node:           a.nodeName,
+		Timestamp:      time.Now().UTC().Format(time.RFC3339),
+		ProgramID:      state.Program.ID,
+		ProgramName:    state.Program.Name,
+		ProgramType:    state.Program.Type,
+		OwnerPod:       ownerPod,
+		OwnerNamespace: ownerNS,
+		Severity:       "high",
+	}
+	a.webhookAlert.SendAlert(payload)
 }
 
 // Stop stops the auditor
