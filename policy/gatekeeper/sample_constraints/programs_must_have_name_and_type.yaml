@@ -1,0 +1,11 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: EbpfProgramAllowlist
+metadata:
+  name: programs-must-have-name-and-type
+spec:
+  enforcementAction: warn
+  match:
+    kinds:
+      - apiGroups: ["corso.io"]
+        kinds: ["BPFProgramAllowlist"]
+  parameters: {}

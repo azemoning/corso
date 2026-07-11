@@ -1,0 +1,15 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: EbpfAllowlistValidation
+metadata:
+  name: corso-allowlist-schema
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+      - apiGroups: ["corso.io"]
+        kinds: ["BPFProgramAllowlist"]
+    namespaces:
+      - default
+      - corso-system
+  parameters:
+    requireDefaultAction: true

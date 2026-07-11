@@ -1,0 +1,81 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: ebpfprogramallowlist
+  annotations:
+    description: >-
+      Validates BPFProgramAllowlist CRDs against the Corso schema requirements.
+      Ensures allowlist CRDs have valid defaultAction, program entries with
+      required fields, and valid SHA256 hashes when specified.
+spec:
+  crd:
+    spec:
+      names:
+        kind: EbpfProgramAllowlist
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            allowedActions:
+              type: array
+              items:
+                type: string
+              description: "List of allowed defaultAction values (default: alert, block, audit)"
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package ebpfprogramallowlist
+
+        import future.keywords.in
+        import future.keywords.every
+
+        default allow_actions := ["alert", "block", "audit"]
+
+        allowed_actions := a {
+          a := input.parameters.allowedActions
+        } else := a {
+          a := allow_actions
+        }
+
+        valid_types := {"kprobe", "kretprobe", "tracepoint", "raw_tracepoint", "xdp", "tc", "lsm", "cgroup", "sockops", "sk_msg", "classifier", "flow_dissector", "struct_ops"}
+
+        sha256_pattern := `^[a-fA-F0-9]{64}$`
+
+        violation[{"msg": msg}] {
+          input.review.kind.kind == "BPFProgramAllowlist"
+          not input.review.object.spec.defaultAction in allowed_actions
+          msg := sprintf("BPFProgramAllowlist '%s' has invalid defaultAction '%s'. Must be one of: %v", [input.review.object.metadata.name, input.review.object.spec.defaultAction, allowed_actions])
+        }
+
+        violation[{"msg": msg}] {
+          input.review.kind.kind == "BPFProgramAllowlist"
+          programs := input.review.object.spec.programs
+          program := programs[i]
+          program.name == ""
+          msg := sprintf("BPFProgramAllowlist '%s' has program entry with empty name at index %d", [input.review.object.metadata.name, i])
+        }
+
+        violation[{"msg": msg}] {
+          input.review.kind.kind == "BPFProgramAllowlist"
+          programs := input.review.object.spec.programs
+          program := programs[i]
+          program.type != ""
+          not program.type in valid_types
+          msg := sprintf("BPFProgramAllowlist '%s' program '%s' has invalid type '%s'. Must be one of: kprobe, kretprobe, tracepoint, raw_tracepoint, xdp, tc, lsm, cgroup, sockops, sk_msg, classifier, flow_dissector, struct_ops", [input.review.object.metadata.name, program.name, program.type])
+        }
+
+        violation[{"msg": msg}] {
+          input.review.kind.kind == "BPFProgramAllowlist"
+          programs := input.review.object.spec.programs
+          program := programs[i]
+          program.hash != ""
+          not regex.match(sha256_pattern, program.hash)
+          msg := sprintf("BPFProgramAllowlist '%s' program '%s' has invalid hash. Must be a valid SHA256 (64 hex characters)", [input.review.object.metadata.name, program.name])
+        }
+
+        violation[{"msg": msg}] {
+          input.review.kind.kind == "BPFProgramAllowlist"
+          programs := input.review.object.spec.programs
+          count(programs) == 0
+          msg := sprintf("BPFProgramAllowlist '%s' must have at least one program entry in spec.programs", [input.review.object.metadata.name])
+        }

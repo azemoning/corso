@@ -1,0 +1,15 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: EbpfProgramAllowlist
+metadata:
+  name: allowlist-must-have-default-action
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+      - apiGroups: ["corso.io"]
+        kinds: ["BPFProgramAllowlist"]
+  parameters:
+    allowedActions:
+      - alert
+      - block
+      - audit

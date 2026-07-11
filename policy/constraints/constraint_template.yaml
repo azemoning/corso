@@ -1,0 +1,58 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: ebpfallowlistvalidation
+  annotations:
+    description: >-
+      Validates BPFProgramAllowlist CRD structure.
+      Ensures required fields are present and values are valid.
+spec:
+  crd:
+    spec:
+      names:
+        kind: EbpfAllowlistValidation
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            requireDefaultAction:
+              type: boolean
+              description: "Whether to require the defaultAction field (default: true)"
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package ebpfallowlistvalidation
+
+        import future.keywords.in
+
+        valid_actions := {"alert", "block", "audit"}
+
+        violation[{"msg": msg}] {
+          input.review.kind.kind == "BPFProgramAllowlist"
+          input.parameters.requireDefaultAction == true
+          not input.review.object.spec.defaultAction
+          msg := sprintf("BPFProgramAllowlist '%s' is missing required field 'spec.defaultAction'", [input.review.object.metadata.name])
+        }
+
+        violation[{"msg": msg}] {
+          input.review.kind.kind == "BPFProgramAllowlist"
+          input.review.object.spec.defaultAction
+          not input.review.object.spec.defaultAction in valid_actions
+          msg := sprintf("BPFProgramAllowlist '%s' has invalid defaultAction '%s'. Must be one of: alert, block, audit", [input.review.object.metadata.name, input.review.object.spec.defaultAction])
+        }
+
+        violation[{"msg": msg}] {
+          input.review.kind.kind == "BPFProgramAllowlist"
+          programs := input.review.object.spec.programs
+          program := programs[i]
+          not program.name
+          msg := sprintf("BPFProgramAllowlist '%s' program at index %d is missing required field 'name'", [input.review.object.metadata.name, i])
+        }
+
+        violation[{"msg": msg}] {
+          input.review.kind.kind == "BPFProgramAllowlist"
+          programs := input.review.object.spec.programs
+          program := programs[i]
+          not program.type
+          msg := sprintf("BPFProgramAllowlist '%s' program '%s' at index %d is missing required field 'type'", [input.review.object.metadata.name, program.name, i])
+        }
