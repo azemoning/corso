@@ -14,8 +14,6 @@ type LoadedProgram struct {
 	Type          string         `json:"type"`
 	Tag           string         `json:"tag"`
 	VerifiedInsns uint32         `json:"verified_insns"`
-	JitedSize     uint32         `json:"jited_size"`
-	Memlock       uint64         `json:"memlock_bytes"`
 	MapIDs        []uint32       `json:"map_ids"`
 }
 
@@ -57,9 +55,6 @@ func EnumeratePrograms() ([]LoadedProgram, error) {
 		// Call getter methods for optional fields
 		if v, ok := info.VerifiedInstructions(); ok {
 			loaded.VerifiedInsns = v
-		}
-		if v, ok := info.Memlock(); ok {
-			loaded.Memlock = v
 		}
 		if v, ok := info.MapIDs(); ok {
 			for _, mapID := range v {

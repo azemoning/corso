@@ -39,11 +39,11 @@ Corso guards your cluster's eBPF programs the way a Cane Corso guards the herd.`
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tNAME\tTYPE\tTAG\tMEMLOCK")
-			fmt.Fprintln(w, "--\t----\t----\t---\t-------")
+			fmt.Fprintln(w, "ID	NAME	TYPE	TAG")
+			fmt.Fprintln(w, "--	----	----	---")
 			for _, p := range programs {
-				fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%d\n",
-					p.ID, p.Name, p.Type, p.Tag, p.Memlock)
+				fmt.Fprintf(w, "%d	%s	%s	%s\n",
+					p.ID, p.Name, p.Type, p.Tag)
 			}
 			w.Flush()
 
