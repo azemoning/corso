@@ -122,6 +122,56 @@ make build
 make docker-build
 ```
 
+## E2E Testing
+
+End-to-end tests run against a real kind Kubernetes cluster with Corso deployed as a DaemonSet.
+
+### Prerequisites
+
+- [kind](https://kind.sigs.k8s.io/) (Kubernetes in Docker)
+- Docker
+- Go 1.24+
+
+### Quick Run
+
+```bash
+# Full e2e: create cluster, deploy, test, cleanup
+cd e2e && make e2e
+```
+
+### Step by Step
+
+```bash
+cd e2e
+
+# 1. Create kind cluster with eBPF mounts, build images, deploy Corso
+make e2e-setup
+
+# 2. Run the test suite
+make e2e-run
+
+# 3. Clean up (delete kind cluster)
+make e2e-cleanup
+```
+
+### Test Scenarios
+
+| Test | Description |
+|------|-------------|
+| `TestCorsoPodsRunning` | DaemonSet pods running on all nodes |
+| `TestCorsoCLIScan` | `corsoctl scan` lists eBPF programs |
+| `TestCorsoCLICount` | `corsoctl count` returns a number |
+| `TestCorsoCLIStats` | `corsoctl stats` shows program types |
+| `TestMetricsEndpoint` | `/metrics` serves Prometheus metrics |
+| `TestLoadAndDetectEBPFProgram` | Load eBPF program, verify Corso detects it |
+| `TestUnauthorizedProgramAlert` | Unauthorized program triggers violation event |
+| `TestKnownDaemonAutoAllow` | Known daemons (cilium/calico) auto-allowed |
+| `TestAllowlistCRD` | BPFProgramAllowlist CRD respected |
+
+### Kind Cluster Config
+
+The kind cluster (`corso-e2e`) mounts `/sys/kernel/debug`, `/sys/fs/bpf`, and `/proc` from the host to enable eBPF operations inside the cluster nodes. See `e2e/kind-config.yaml`.
+
 ## License
 
 Apache 2.0

@@ -1,0 +1,20 @@
+FROM ubuntu:22.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    clang \
+    llvm \
+    libc6-dev \
+    gcc \
+    linux-headers-generic \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY simple_ebpf_loader.c .
+
+RUN clang -O2 -target bpf -c simple_ebpf_loader.c -o loader.o || true
+
+# If BPF compilation fails (no headers), use the raw bytecode loader
+RUN gcc -O2 -o /loader simple_ebpf_loader.c -static || \
+    gcc -O2 -o /loader simple_ebpf_loader.c
+
+ENTRYPOINT ["/loader"]
