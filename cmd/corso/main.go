@@ -104,7 +104,7 @@ func main() {
 	}
 
 	// Auditor
-	aud := auditor.NewAuditor(clientset, resolver, al, cfg.NodeName, cfg.Namespace, cfg.PollInterval)
+	aud := auditor.NewAuditor(clientset, resolver, al, cfg.NodeName, cfg.Namespace, cfg.PollInterval, cfg.EnforcementMode)
 	defer aud.Stop()
 
 	// Start auditor

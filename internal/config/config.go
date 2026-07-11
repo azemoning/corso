@@ -17,6 +17,7 @@ type Config struct {
 	WebhookURL        string        `json:"webhook_url,omitempty"`
 	WebhookTimeout    time.Duration `json:"webhook_timeout,omitempty"`
 	ControllerEnabled bool          `json:"controller_enabled"`
+	EnforcementMode   string        `json:"enforcement_mode"`
 }
 
 // LoadConfig reads config from environment
@@ -35,6 +36,16 @@ func LoadConfig() *Config {
 		klog.Warning("NODE_NAME not set, trying to detect from hostname")
 		hostname, _ := os.Hostname()
 		cfg.NodeName = hostname
+	}
+
+	// Enforcement mode: alert (default), log, block
+	cfg.EnforcementMode = getEnvOrDefault("CORSO_ENFORCEMENT_MODE", "alert")
+	switch cfg.EnforcementMode {
+	case "alert", "log", "block":
+		// valid
+	default:
+		klog.Warningf("Invalid CORSO_ENFORCEMENT_MODE %q, using 'alert'", cfg.EnforcementMode)
+		cfg.EnforcementMode = "alert"
 	}
 
 	if v := os.Getenv("CORSO_WEBHOOK_TIMEOUT"); v != "" {

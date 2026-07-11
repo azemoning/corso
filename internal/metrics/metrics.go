@@ -31,6 +31,15 @@ var (
 			Buckets: prometheus.ExponentialBuckets(0.001, 2, 15),
 		},
 	)
+
+	// EnforcementTotal is a counter tracking enforcement actions
+	EnforcementTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "corso_enforcement_total",
+			Help: "Total number of eBPF program enforcement actions",
+		},
+		[]string{"mode", "action"},
+	)
 )
 
 // Register registers all Corso metrics with the default Prometheus registry
@@ -38,4 +47,5 @@ func Register() {
 	prometheus.MustRegister(ProgramsTotal)
 	prometheus.MustRegister(ViolationsTotal)
 	prometheus.MustRegister(ScanDurationSeconds)
+	prometheus.MustRegister(EnforcementTotal)
 }

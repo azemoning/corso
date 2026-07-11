@@ -11,6 +11,7 @@ import (
 
 	"github.com/azemoning/corso/internal/alerts"
 	"github.com/azemoning/corso/internal/allowlist"
+	"github.com/azemoning/corso/internal/enforcer"
 	"github.com/azemoning/corso/internal/metrics"
 	corsoebpf "github.com/azemoning/corso/pkg/ebpf"
 	"k8s.io/client-go/kubernetes"
@@ -35,6 +36,7 @@ type Auditor struct {
 	webhookAlert  *alerts.WebhookAlert
 	lastAlertTime map[uint32]time.Time
 	syscallMon    *SyscallMonitor
+	enforcer      *enforcer.Enforcer
 
 	// Lifecycle
 	ctx    context.Context
@@ -60,9 +62,10 @@ func NewAuditor(
 	al *allowlist.Allowlist,
 	nodeName, namespace string,
 	pollInterval time.Duration,
+	enforcementMode string,
 ) *Auditor {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Auditor{
+	aud := &Auditor{
 		clientset:     clientset,
 		pidResolver:   resolver,
 		allowlist:     al,
@@ -77,11 +80,25 @@ func NewAuditor(
 		ctx:           ctx,
 		cancel:        cancel,
 	}
+
+	// Create enforcer if mode is not "alert"
+	if enforcementMode != "alert" {
+		aud.enforcer = enforcer.NewEnforcer(al, enforcementMode)
+	}
+
+	return aud
 }
 
 // Run starts the audit loop
 func (a *Auditor) Run() {
 	klog.Infof("Corso auditor starting on node %s, poll interval %v", a.nodeName, a.pollInterval)
+
+	// Start the BPF LSM enforcer if configured
+	if a.enforcer != nil {
+		if err := a.enforcer.Start(); err != nil {
+			klog.Warningf("Failed to start BPF LSM enforcer (non-fatal, still monitoring): %v", err)
+		}
+	}
 
 	// Start the real-time syscall monitor
 	if err := a.syscallMon.Start(); err != nil {
@@ -103,6 +120,9 @@ func (a *Auditor) Run() {
 		case <-a.ctx.Done():
 			klog.Info("Corso auditor shutting down")
 			a.syscallMon.Stop()
+			if a.enforcer != nil {
+				a.enforcer.Stop()
+			}
 			return
 		}
 	}
@@ -266,6 +286,9 @@ func (a *Auditor) emitWebhookAlert(state *ProgramState) {
 // Stop stops the auditor
 func (a *Auditor) Stop() {
 	a.cancel()
+	if a.enforcer != nil {
+		a.enforcer.Stop()
+	}
 }
 
 // GetState returns current audit state for CLI/dashboard
