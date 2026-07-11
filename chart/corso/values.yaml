@@ -43,3 +43,13 @@ controller:
     limits:
       cpu: 100m
       memory: 64Mi
+
+dashboard:
+  enabled: true
+  labels:
+    grafana_dashboard: "1"
+
+opaPolicies:
+  enabled: false
+  labels:
+    opa-policy: "corso"
