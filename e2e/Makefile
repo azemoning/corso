@@ -3,6 +3,7 @@
 KIND_CLUSTER_NAME := corso-e2e
 CORSO_IMAGE := corso:latest
 LOADER_IMAGE := corso-e2e-loader:latest
+ECHO_IMAGE := corso-e2e-echo:latest
 CORSO_NAMESPACE := corso-system
 TEST_TIMEOUT := 5m
 
@@ -44,6 +45,10 @@ e2e-build-image:
 	docker build -t $(LOADER_IMAGE) -f testdata/Dockerfile.e2e testdata/
 	@echo "==> Loading loader image into kind..."
 	kind load docker-image $(LOADER_IMAGE) --name $(KIND_CLUSTER_NAME)
+	@echo "==> Building echo server test image..."
+	docker build -t $(ECHO_IMAGE) -f testdata/Dockerfile.echo testdata/
+	@echo "==> Loading echo server image into kind..."
+	kind load docker-image $(ECHO_IMAGE) --name $(KIND_CLUSTER_NAME)
 
 ## Deploy Corso CRDs
 deploy-crd:

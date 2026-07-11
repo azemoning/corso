@@ -2,6 +2,8 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -368,6 +370,153 @@ func TestMetricsEndpointFormat(t *testing.T) {
 	if !typeFound {
 		t.Error("Expected # TYPE lines in Prometheus metrics output")
 	}
+}
+
+// TestWebhookDelivery deploys an echo server, configures CORSO_WEBHOOK_URL,
+// loads an unauthorized eBPF program, and verifies the webhook received
+// the alert payload with the expected JSON structure.
+func TestWebhookDelivery(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping in short mode")
+	}
+
+	clientset := kubeClient(t)
+	pods := getCorsoPods(t, corsoNamespace)
+	if len(pods) == 0 {
+		t.Skip("No Corso pods available")
+	}
+
+	echoImage := "corso-e2e-echo:latest"
+	echoPod := createEchoServerPod(t, clientset, corsoNamespace, echoImage)
+	waitForPodReady(t, echoPod, corsoNamespace, 2*time.Minute)
+
+	echoSvcIP := getPodIP(t, clientset, corsoNamespace, echoPod)
+	webhookURL := fmt.Sprintf("http://%s:8080/", echoSvcIP)
+	t.Logf("Echo server at %s", webhookURL)
+
+	patchCorsoDaemonSetEnv(t, clientset, corsoNamespace, "CORSO_WEBHOOK_URL", webhookURL)
+	waitForDaemonSetReady(t, "corso", corsoNamespace, 3*time.Minute)
+
+	pods = getCorsoPods(t, corsoNamespace)
+	if len(pods) == 0 {
+		t.Fatal("No Corso pods after DaemonSet restart")
+	}
+	corsoPod := pods[0].Name
+
+	baselineMetrics := getMetrics(t, corsoPod)
+	baselineViolations := parseCounterValue(baselineMetrics, "corso_violations_total")
+	t.Logf("Baseline violations: %d", baselineViolations)
+
+	loaderPod := createTestEBPFLoaderPod(t, clientset, corsoNamespace, loaderImage)
+	waitForLoaderPod(t, clientset, corsoNamespace, loaderPod, 2*time.Minute)
+
+	t.Log("Waiting for Corso to detect unauthorized program and send webhook...")
+	time.Sleep(45 * time.Second)
+
+	var webhookRequests []map[string]json.RawMessage
+	err := wait.PollUntilContextTimeout(context.Background(), 5*time.Second, 60*time.Second, true,
+		func(ctx context.Context) (bool, error) {
+			output := execCommand(t, echoPod, corsoNamespace,
+				[]string{"wget", "-qO-", "http://localhost:8080/requests"})
+			if err := json.Unmarshal([]byte(output), &webhookRequests); err != nil {
+				return false, nil
+			}
+			return len(webhookRequests) > 0, nil
+		})
+	if err != nil {
+		afterMetrics := getMetrics(t, corsoPod)
+		afterViolations := parseCounterValue(afterMetrics, "corso_violations_total")
+		t.Logf("Violations after: %d (baseline: %d)", afterViolations, baselineViolations)
+		t.Fatal("No webhook requests received within timeout")
+	}
+
+	t.Logf("Received %d webhook request(s)", len(webhookRequests))
+
+	req := webhookRequests[0]
+	bodyRaw, ok := req["body"]
+	if !ok {
+		t.Fatal("Webhook request missing 'body' field")
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(bodyRaw, &payload); err != nil {
+		t.Fatalf("Failed to parse webhook body as JSON: %v", err)
+	}
+	t.Logf("Webhook payload: %s", string(bodyRaw))
+
+	requiredFields := []string{"node", "timestamp", "program_id", "program_name", "program_type", "severity"}
+	for _, field := range requiredFields {
+		if _, ok := payload[field]; !ok {
+			t.Errorf("Missing required field %q in webhook payload", field)
+		}
+	}
+
+	if ts, ok := payload["timestamp"].(string); ok {
+		if _, err := time.Parse(time.RFC3339, ts); err != nil {
+			t.Errorf("Invalid timestamp format %q: %v", ts, err)
+		}
+	} else {
+		t.Error("Timestamp field is not a string")
+	}
+
+	if sev, ok := payload["severity"].(string); ok {
+		if sev != "high" {
+			t.Errorf("Expected severity 'high', got %q", sev)
+		}
+	} else {
+		t.Error("Severity field is not a string")
+	}
+
+	deletePod(t, clientset, corsoNamespace, loaderPod)
+	restoreCorsoDaemonSet(t, clientset, corsoNamespace, "CORSO_WEBHOOK_URL")
+	waitForDaemonSetReady(t, "corso", corsoNamespace, 3*time.Minute)
+}
+
+// TestAlertThrottle loads an unauthorized eBPF program, waits for the first
+// alert, then verifies that no duplicate alerts are sent within 30 seconds
+// (the throttle window is 5 minutes).
+func TestAlertThrottle(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping in short mode")
+	}
+
+	clientset := kubeClient(t)
+	pods := getCorsoPods(t, corsoNamespace)
+	if len(pods) == 0 {
+		t.Skip("No Corso pods available")
+	}
+
+	loaderPod := createTestEBPFLoaderPod(t, clientset, corsoNamespace, loaderImage)
+	waitForLoaderPod(t, clientset, corsoNamespace, loaderPod, 2*time.Minute)
+
+	t.Log("Waiting for first UnauthorizedBPFProgram event...")
+	var firstEventCount int
+	err := wait.PollUntilContextTimeout(context.Background(), 5*time.Second, 2*time.Minute, true,
+		func(ctx context.Context) (bool, error) {
+			count := countEventsWithReason(t, clientset, corsoNamespace, "UnauthorizedBPFProgram")
+			if count > 0 {
+				firstEventCount = count
+				return true, nil
+			}
+			return false, nil
+		})
+	if err != nil {
+		t.Fatal("No UnauthorizedBPFProgram event received within timeout")
+	}
+	t.Logf("First alert received (%d event(s)), waiting 30s to verify throttle...", firstEventCount)
+
+	time.Sleep(30 * time.Second)
+
+	afterCount := countEventsWithReason(t, clientset, corsoNamespace, "UnauthorizedBPFProgram")
+	t.Logf("Events after 30s: %d (was %d)", afterCount, firstEventCount)
+
+	if afterCount > firstEventCount {
+		t.Errorf("Expected no new events within 30s (throttle window=5m), got %d new events",
+			afterCount-firstEventCount)
+	}
+
+	t.Logf("Throttle working: %d total events, no duplicates in 30s window", afterCount)
+	deletePod(t, clientset, corsoNamespace, loaderPod)
 }
 
 // Helper functions

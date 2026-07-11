@@ -3,6 +3,7 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -11,6 +12,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -379,4 +382,172 @@ func execCommandRaw(t *testing.T, podName, namespace string, command []string) s
 	})
 
 	return stdout.String()
+}
+
+// createEchoServerPod creates a pod running a simple HTTP echo server that
+// logs all received requests. Used for webhook delivery testing.
+func createEchoServerPod(t *testing.T, clientset kubernetes.Interface, namespace, image string) string {
+	t.Helper()
+
+	podName := "echo-server"
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app":      "echo-server",
+				"test-e2e": "true",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "echo",
+					Image: image,
+					Ports: []corev1.ContainerPort{
+						{ContainerPort: 8080, Name: "http"},
+					},
+					ReadinessProbe: &corev1.Probe{
+						ProbeHandler: corev1.ProbeHandler{
+							HTTPGet: &corev1.HTTPGetAction{
+								Path: "/healthz",
+								Port: intstr.FromInt(8080),
+							},
+						},
+						InitialDelaySeconds: 2,
+						PeriodSeconds:       2,
+					},
+				},
+			},
+		},
+	}
+
+	_ = clientset.CoreV1().Pods(namespace).Delete(context.Background(), podName, metav1.DeleteOptions{})
+
+	created, err := clientset.CoreV1().Pods(namespace).Create(context.Background(), pod, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("Failed to create echo server pod: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_ = clientset.CoreV1().Pods(namespace).Delete(context.Background(), podName, metav1.DeleteOptions{})
+	})
+
+	return created.Name
+}
+
+// patchCorsoDaemonSetEnv adds or updates an environment variable on the Corso DaemonSet.
+func patchCorsoDaemonSetEnv(t *testing.T, clientset kubernetes.Interface, namespace, name, value string) {
+	t.Helper()
+
+	ds, err := clientset.AppsV1().DaemonSets(namespace).Get(context.Background(), "corso", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Failed to get DaemonSet: %v", err)
+	}
+
+	found := false
+	for i := range ds.Spec.Template.Spec.Containers[0].Env {
+		if ds.Spec.Template.Spec.Containers[0].Env[i].Name == name {
+			ds.Spec.Template.Spec.Containers[0].Env[i].Value = value
+			ds.Spec.Template.Spec.Containers[0].Env[i].ValueFrom = nil
+			found = true
+			break
+		}
+	}
+	if !found {
+		ds.Spec.Template.Spec.Containers[0].Env = append(ds.Spec.Template.Spec.Containers[0].Env, corev1.EnvVar{
+			Name:  name,
+			Value: value,
+		})
+	}
+
+	patchData, err := json.Marshal(ds)
+	if err != nil {
+		t.Fatalf("Failed to marshal DaemonSet: %v", err)
+	}
+
+	_, err = clientset.AppsV1().DaemonSets(namespace).Patch(
+		context.Background(), "corso", types.StrategicMergePatchType, patchData, metav1.PatchOptions{})
+	if err != nil {
+		t.Fatalf("Failed to patch DaemonSet: %v", err)
+	}
+	t.Logf("Patched DaemonSet: %s=%s", name, value)
+}
+
+// restoreCorsoDaemonSet removes an environment variable from the Corso DaemonSet
+// and waits for the rollout to complete.
+func restoreCorsoDaemonSet(t *testing.T, clientset kubernetes.Interface, namespace, name string) {
+	t.Helper()
+
+	ds, err := clientset.AppsV1().DaemonSets(namespace).Get(context.Background(), "corso", metav1.GetOptions{})
+	if err != nil {
+		t.Logf("Warning: failed to get DaemonSet for restore: %v", err)
+		return
+	}
+
+	newEnv := make([]corev1.EnvVar, 0, len(ds.Spec.Template.Spec.Containers[0].Env))
+	for _, env := range ds.Spec.Template.Spec.Containers[0].Env {
+		if env.Name != name {
+			newEnv = append(newEnv, env)
+		}
+	}
+	ds.Spec.Template.Spec.Containers[0].Env = newEnv
+
+	patchData, err := json.Marshal(ds)
+	if err != nil {
+		t.Logf("Warning: failed to marshal DaemonSet for restore: %v", err)
+		return
+	}
+
+	_, err = clientset.AppsV1().DaemonSets(namespace).Patch(
+		context.Background(), "corso", types.StrategicMergePatchType, patchData, metav1.PatchOptions{})
+	if err != nil {
+		t.Logf("Warning: failed to restore DaemonSet: %v", err)
+		return
+	}
+	t.Logf("Restored DaemonSet: removed %s", name)
+}
+
+// countEventsWithReason returns the number of K8s events matching the given reason.
+func countEventsWithReason(t *testing.T, clientset kubernetes.Interface, namespace, reason string) int {
+	t.Helper()
+	events := getKubernetesEvents(t, clientset, namespace, reason)
+	return len(events)
+}
+
+// waitForDaemonSetEnvRemoved waits until the DaemonSet no longer has the given env var.
+func waitForDaemonSetEnvRemoved(t *testing.T, clientset kubernetes.Interface, namespace, name string, timeout time.Duration) {
+	t.Helper()
+
+	err := wait.PollUntilContextTimeout(context.Background(), pollInterval, timeout, true,
+		func(ctx context.Context) (bool, error) {
+			ds, err := clientset.AppsV1().DaemonSets(namespace).Get(ctx, "corso", metav1.GetOptions{})
+			if err != nil {
+				return false, nil
+			}
+			for _, env := range ds.Spec.Template.Spec.Containers[0].Env {
+				if env.Name == name {
+					return false, nil
+				}
+			}
+			return ds.Status.NumberReady == ds.Status.DesiredNumberScheduled, nil
+		})
+	if err != nil {
+		t.Logf("Warning: DaemonSet env %s not removed within %v: %v", name, timeout, err)
+	}
+}
+
+// getPodIP returns the pod's IP address.
+func getPodIP(t *testing.T, clientset kubernetes.Interface, namespace, podName string) string {
+	t.Helper()
+
+	pod, err := clientset.CoreV1().Pods(namespace).Get(context.Background(), podName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("Failed to get pod %s: %v", podName, err)
+	}
+	if pod.Status.PodIP == "" {
+		t.Fatalf("Pod %s has no IP address", podName)
+	}
+	return pod.Status.PodIP
 }

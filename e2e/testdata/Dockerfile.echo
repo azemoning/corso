@@ -1,0 +1,10 @@
+FROM golang:1.22-alpine AS builder
+WORKDIR /app
+COPY echo_server/main.go .
+RUN go build -o /echo-server main.go
+
+FROM alpine:3.19
+RUN apk add --no-cache ca-certificates
+COPY --from=builder /echo-server /echo-server
+EXPOSE 8080
+CMD ["/echo-server"]
