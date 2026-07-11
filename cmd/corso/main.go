@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -10,6 +11,8 @@ import (
 	"github.com/azemoning/corso/internal/allowlist"
 	"github.com/azemoning/corso/internal/auditor"
 	"github.com/azemoning/corso/internal/config"
+	"github.com/azemoning/corso/internal/metrics"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -46,6 +49,18 @@ func main() {
 	// Allowlist
 	al := allowlist.NewAllowlist()
 	// TODO: Watch BPFProgramAllowlist CRD and call al.Update()
+
+	// Register Prometheus metrics
+	metrics.Register()
+
+	// Start metrics HTTP server on :9090
+	go func() {
+		http.Handle("/metrics", promhttp.Handler())
+		klog.Info("Metrics server listening on :9090")
+		if err := http.ListenAndServe(":9090", nil); err != nil && err != http.ErrServerClosed {
+			klog.Errorf("Metrics server error: %v", err)
+		}
+	}()
 
 	// Auditor
 	aud := auditor.NewAuditor(clientset, resolver, al, cfg.NodeName, cfg.Namespace, cfg.PollInterval)
