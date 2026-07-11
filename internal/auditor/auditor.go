@@ -26,6 +26,7 @@ type Auditor struct {
 	// State
 	knownPrograms map[uint32]*ProgramState
 	alertEmitter  *AlertEmitter
+	syscallMon    *SyscallMonitor
 
 	// Lifecycle
 	ctx    context.Context
@@ -60,6 +61,7 @@ func NewAuditor(
 		pollInterval:  pollInterval,
 		knownPrograms: make(map[uint32]*ProgramState),
 		alertEmitter:  NewAlertEmitter(clientset, namespace, nodeName),
+		syscallMon:    NewSyscallMonitor(resolver, 256),
 		ctx:           ctx,
 		cancel:        cancel,
 	}
@@ -68,6 +70,13 @@ func NewAuditor(
 // Run starts the audit loop
 func (a *Auditor) Run() {
 	klog.Infof("Corso auditor starting on node %s, poll interval %v", a.nodeName, a.pollInterval)
+
+	// Start the real-time syscall monitor
+	if err := a.syscallMon.Start(); err != nil {
+		klog.Warningf("Failed to start syscall monitor (non-fatal, polling still works): %v", err)
+	} else {
+		go a.processSyscallEvents()
+	}
 
 	// Initial scan
 	a.scanAndAudit()
@@ -81,6 +90,7 @@ func (a *Auditor) Run() {
 			a.scanAndAudit()
 		case <-a.ctx.Done():
 			klog.Info("Corso auditor shutting down")
+			a.syscallMon.Stop()
 			return
 		}
 	}
@@ -171,6 +181,27 @@ func (a *Auditor) scanAndAudit() {
 	for progType, counts := range programsByType {
 		metrics.ProgramsTotal.WithLabelValues(a.nodeName, progType, "true").Set(float64(counts.allowed))
 		metrics.ProgramsTotal.WithLabelValues(a.nodeName, progType, "false").Set(float64(counts.denied))
+	}
+}
+
+// processSyscallEvents handles real-time events from the eBPF ring buffer
+func (a *Auditor) processSyscallEvents() {
+	for evt := range a.syscallMon.Events() {
+		klog.V(2).Infof("Real-time eBPF program load: pid=%d prog_id=%d prog_type=%d comm=%s",
+			evt.PID, evt.ProgID, evt.ProgType, evt.Comm)
+
+		// Check allowlist for real-time detection
+		checkProg := &allowlist.ProgramToCheck{
+			ID:   evt.ProgID,
+			Name: evt.Comm,
+			Type: fmt.Sprintf("%d", evt.ProgType),
+		}
+
+		if !a.allowlist.IsAllowed(checkProg) {
+			klog.Warningf("UNAUTHORIZED eBPF program loaded in real-time: pid=%d prog_id=%d comm=%s",
+				evt.PID, evt.ProgID, evt.Comm)
+			metrics.ViolationsTotal.WithLabelValues(a.nodeName).Inc()
+		}
 	}
 }
 
