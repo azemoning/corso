@@ -16,17 +16,19 @@ type Config struct {
 	Verbose           bool          `json:"verbose"`
 	WebhookURL        string        `json:"webhook_url,omitempty"`
 	WebhookTimeout    time.Duration `json:"webhook_timeout,omitempty"`
+	ControllerEnabled bool          `json:"controller_enabled"`
 }
 
 // LoadConfig reads config from environment
 func LoadConfig() *Config {
 	cfg := &Config{
-		NodeName:      getEnvOrDefault("NODE_NAME", ""),
-		Namespace:     getEnvOrDefault("CORSO_NAMESPACE", "corso-system"),
-		PollInterval:  30 * time.Second,
-		AllowlistName: getEnvOrDefault("CORSO_ALLOWLIST", "default"),
-		Verbose:       os.Getenv("VERBOSE") == "true",
-		WebhookURL:    os.Getenv("CORSO_WEBHOOK_URL"),
+		NodeName:          getEnvOrDefault("NODE_NAME", ""),
+		Namespace:         getEnvOrDefault("CORSO_NAMESPACE", "corso-system"),
+		PollInterval:      30 * time.Second,
+		AllowlistName:     getEnvOrDefault("CORSO_ALLOWLIST", "default"),
+		Verbose:           os.Getenv("VERBOSE") == "true",
+		WebhookURL:        os.Getenv("CORSO_WEBHOOK_URL"),
+		ControllerEnabled: os.Getenv("CORSO_CONTROLLER_ENABLED") != "false",
 	}
 
 	if cfg.NodeName == "" {

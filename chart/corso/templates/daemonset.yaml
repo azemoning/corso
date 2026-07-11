@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "corso.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "corso.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+spec:
+  selector:
+    matchLabels:
+      {{- include "corso.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: agent
+  template:
+    metadata:
+      labels:
+        {{- include "corso.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: agent
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.agent.metricsPort | quote }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "corso.serviceAccountName" . }}
+      hostPID: true
+      hostNetwork: true
+      containers:
+        - name: corso
+          image: {{ include "corso.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/corso"]
+          securityContext:
+            privileged: {{ .Values.daemonset.privileged }}
+            capabilities:
+              add: ["SYS_ADMIN", "BPF"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "corso.fullname" . }}-config
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: CORSO_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: CORSO_ALLOWLIST
+              value: "default"
+          ports:
+            - containerPort: {{ .Values.agent.metricsPort }}
+              name: metrics
+              hostPort: {{ .Values.agent.metricsPort }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.daemonset.resources | nindent 12 }}
+          livenessProbe:
+            exec:
+              command: ["/corsoctl", "count"]
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            exec:
+              command: ["/corsoctl", "count"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: bpffs
+              mountPath: /sys/fs/bpf
+            - name: proc
+              mountPath: /proc
+              readOnly: true
+            - name: cgroup
+              mountPath: /sys/fs/cgroup
+              readOnly: true
+      volumes:
+        - name: bpffs
+          hostPath:
+            path: /sys/fs/bpf
+            type: DirectoryOrCreate
+        - name: proc
+          hostPath:
+            path: /proc
+            type: Directory
+        - name: cgroup
+          hostPath:
+            path: /sys/fs/cgroup
+            type: Directory
+      tolerations:
+        {{- toYaml .Values.daemonset.tolerations | nindent 8 }}

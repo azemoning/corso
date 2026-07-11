@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,8 +12,10 @@ import (
 	"github.com/azemoning/corso/internal/allowlist"
 	"github.com/azemoning/corso/internal/auditor"
 	"github.com/azemoning/corso/internal/config"
+	"github.com/azemoning/corso/internal/controller"
 	"github.com/azemoning/corso/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -21,6 +24,9 @@ import (
 
 func main() {
 	klog.InitFlags(nil)
+
+	controllerOnly := flag.Bool("controller-only", false, "Run only the CRD controller (no agent)")
+	flag.Parse()
 
 	cfg := config.LoadConfig()
 	klog.Infof("Corso agent starting on node %s", cfg.NodeName)
@@ -36,7 +42,58 @@ func main() {
 		klog.Fatalf("Failed to create clientset: %v", err)
 	}
 
-	// Informer factory
+	dynamicClient, err := dynamic.NewForConfig(restConfig)
+	if err != nil {
+		klog.Fatalf("Failed to create dynamic client: %v", err)
+	}
+
+	// Register Prometheus metrics
+	metrics.Register()
+
+	// Start metrics HTTP server on :9090
+	metricsAddr := fmt.Sprintf(":%d", 9090)
+	go func() {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promhttp.Handler())
+		mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, "ok")
+		})
+		klog.Infof("Metrics server listening on %s", metricsAddr)
+		if err := http.ListenAndServe(metricsAddr, mux); err != nil && err != http.ErrServerClosed {
+			klog.Errorf("Metrics server error: %v", err)
+		}
+	}()
+
+	// Allowlist
+	al := allowlist.NewAllowlist()
+
+	// CRD Controller
+	var ctrl *controller.Controller
+	if cfg.ControllerEnabled {
+		onUpdate := func(programs []allowlist.AllowedProgram, defaultAction string, ignoreKnownDaemons bool) {
+			al.Update(programs, defaultAction, ignoreKnownDaemons)
+		}
+		onReset := func() {
+			al.Update(nil, "alert", true)
+			klog.Info("Allowlist reset to defaults")
+		}
+		ctrl = controller.NewController(dynamicClient, cfg.Namespace, onUpdate, onReset)
+		defer ctrl.Stop()
+		go ctrl.Start()
+	}
+
+	// If running as controller-only, skip the agent
+	if *controllerOnly {
+		klog.Info("Running in controller-only mode")
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		<-sigCh
+		fmt.Println("\nCorso controller shutting down...")
+		return
+	}
+
+	// Informer factory for pod cache
 	factory := informers.NewSharedInformerFactory(clientset, 0)
 
 	// PID resolver
@@ -45,22 +102,6 @@ func main() {
 	if !resolver.WaitForCacheSync(context.Background().Done()) {
 		klog.Fatal("Failed to sync pod cache")
 	}
-
-	// Allowlist
-	al := allowlist.NewAllowlist()
-	// TODO: Watch BPFProgramAllowlist CRD and call al.Update()
-
-	// Register Prometheus metrics
-	metrics.Register()
-
-	// Start metrics HTTP server on :9090
-	go func() {
-		http.Handle("/metrics", promhttp.Handler())
-		klog.Info("Metrics server listening on :9090")
-		if err := http.ListenAndServe(":9090", nil); err != nil && err != http.ErrServerClosed {
-			klog.Errorf("Metrics server error: %v", err)
-		}
-	}()
 
 	// Auditor
 	aud := auditor.NewAuditor(clientset, resolver, al, cfg.NodeName, cfg.Namespace, cfg.PollInterval)

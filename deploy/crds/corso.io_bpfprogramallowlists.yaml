@@ -1,0 +1,104 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: bpfprogramallowlists.corso.io
+  labels:
+    app.kubernetes.io/name: corso
+    app.kubernetes.io/part-of: corso
+spec:
+  group: corso.io
+  names:
+    kind: BPFProgramAllowlist
+    listKind: BPFProgramAllowlistList
+    plural: bpfprogramallowlists
+    singular: bpfprogramallowlist
+    shortNames:
+      - bpfa
+      - bpfas
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Default Action
+          type: string
+          jsonPath: .spec.defaultAction
+          description: Default action for unmatched programs
+        - name: Programs
+          type: integer
+          jsonPath: .status.totalPrograms
+          description: Number of allowed programs
+        - name: Nodes
+          type: integer
+          jsonPath: .status.nodesEnforcing
+          description: Number of nodes enforcing this allowlist
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: BPFProgramAllowlist defines an allowlist of permitted eBPF programs
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              description: Desired state of the BPFProgramAllowlist
+              properties:
+                defaultAction:
+                  type: string
+                  enum:
+                    - alert
+                    - block
+                    - audit
+                  default: alert
+                  description: Action to take for programs not in the allowlist
+                ignoreKnownDaemons:
+                  type: boolean
+                  default: true
+                  description: Auto-allow programs from well-known DaemonSets (cilium, calico, falco, etc.)
+                programs:
+                  type: array
+                  description: List of explicitly allowed eBPF programs
+                  items:
+                    type: object
+                    required:
+                      - name
+                    properties:
+                      name:
+                        type: string
+                        description: eBPF program name (supports glob patterns)
+                      type:
+                        type: string
+                        description: "eBPF program type (kprobe, tracepoint, xdp, etc.)"
+                      hash:
+                        type: string
+                        description: SHA256 hash of the program bytecode
+                      namespace:
+                        type: string
+                        description: Kubernetes namespace of the owning pod
+                      containerName:
+                        type: string
+                        description: Container name within the pod
+            status:
+              type: object
+              description: Observed state of the BPFProgramAllowlist
+              properties:
+                lastSyncTime:
+                  type: string
+                  format: date-time
+                  description: Last time the allowlist was synced to agents
+                totalPrograms:
+                  type: integer
+                  description: Total number of allowed programs
+                nodesEnforcing:
+                  type: integer
+                  description: Number of nodes enforcing this allowlist

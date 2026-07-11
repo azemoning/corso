@@ -1,0 +1,45 @@
+image:
+  repository: ghcr.io/azemoning/corso
+  tag: ""  # defaults to appVersion
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: ""
+
+rbac:
+  create: true
+
+daemonset:
+  privileged: true
+  tolerations:
+    - operator: Exists
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+agent:
+  pollInterval: 30s
+  metricsPort: 9090
+
+webhook:
+  url: ""
+  timeout: 10s
+
+allowlist:
+  defaultAction: alert
+  ignoreKnownDaemons: true
+
+controller:
+  enabled: true
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
