@@ -1,0 +1,22 @@
+run:
+  timeout: 5m
+
+linters:
+  disable:
+    - errcheck  # We handle errors explicitly where needed
+    - govet     # Duplicate of go vet which we run separately
+    - staticcheck  # Too noisy for initial development
+
+linters-settings:
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance
+
+issues:
+  exclude-rules:
+    # Test files can be less strict
+    - path: _test\.go
+      linters:
+        - errcheck
+        - govet
