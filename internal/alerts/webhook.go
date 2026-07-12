@@ -122,7 +122,7 @@ func (w *WebhookAlert) SendAlert(payload *AlertPayload) {
 			klog.Warningf("Webhook: attempt %d/%d failed: %v", attempt+1, w.retries+1, err)
 			continue
 		}
-		io.Copy(io.Discard, resp.Body)
+		_, _ = io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {

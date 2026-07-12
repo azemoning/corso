@@ -71,7 +71,7 @@ func NewController(
 		cancel:          cancel,
 	}
 
-	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, _ = informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    c.handleAdd,
 		UpdateFunc: c.handleUpdate,
 		DeleteFunc: c.handleDelete,

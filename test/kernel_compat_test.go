@@ -36,11 +36,11 @@ func GetKernelInfo() (*KernelInfo, error) {
 	// Parse major.minor.patch
 	parts := strings.SplitN(info.Version, ".", 3)
 	if len(parts) >= 2 {
-		fmt.Sscanf(parts[0], "%d", &info.Major)
-		fmt.Sscanf(parts[1], "%d", &info.Minor)
+		_, _ = fmt.Sscanf(parts[0], "%d", &info.Major)
+		_, _ = fmt.Sscanf(parts[1], "%d", &info.Minor)
 		if len(parts) >= 3 {
 			patchPart := strings.Split(parts[2], "-")[0]
-			fmt.Sscanf(patchPart, "%d", &info.Patch)
+			_, _ = fmt.Sscanf(patchPart, "%d", &info.Patch)
 		}
 	}
 

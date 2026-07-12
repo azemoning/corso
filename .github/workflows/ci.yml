@@ -87,11 +87,11 @@ jobs:
           cluster_name: corso-e2e
 
       - name: Setup e2e environment
-        run: make e2e-setup
+        run: cd e2e && make e2e-setup
 
       - name: Run e2e tests
-        run: make e2e-run
+        run: cd e2e && make e2e-run
 
       - name: Cleanup
         if: always()
-        run: make e2e-cleanup
+        run: cd e2e && make e2e-cleanup

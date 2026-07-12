@@ -42,7 +42,7 @@ func NewPIDResolver(factory informers.SharedInformerFactory, nodeName string) *P
 	}
 
 	podInformer := factory.Core().V1().Pods().Informer()
-	podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	_, _ = podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    r.onPodAdd,
 		UpdateFunc: r.onPodUpdate,
 		DeleteFunc: r.onPodDelete,
