@@ -5,6 +5,7 @@ import (
 	"os"
 	"text/tabwriter"
 
+	"github.com/azemoning/corso/pkg/banner"
 	corsoebpf "github.com/azemoning/corso/pkg/ebpf"
 	"github.com/spf13/cobra"
 	"k8s.io/klog/v2"
@@ -15,10 +16,8 @@ func main() {
 
 	rootCmd := &cobra.Command{
 		Use:   "corsoctl",
-		Short: "Corso CLI - Audit eBPF programs in Kubernetes",
-		Long: `Corso is a Kubernetes-native eBPF program auditor.
-Named after the Cane Corso, an ancient Italian livestock guardian dog,
-Corso guards your cluster's eBPF programs the way a Cane Corso guards the herd.`,
+		Short: banner.Short(),
+		Long:  banner.Full(),
 	}
 
 	// scan command - enumerate all loaded eBPF programs
