@@ -94,7 +94,7 @@ Corso guards your cluster's eBPF programs the way a Cane Corso guards the herd.`
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Println("Fetching node eBPF status...")
 			fmt.Println("NOTE: This requires Corso DaemonSet to be running on cluster nodes")
-			fmt.Println("Use 'corso-ctl scan' on a node to see local programs")
+			fmt.Println("Use 'corsoctl scan' on a node to see local programs")
 			return nil
 		},
 	}
@@ -109,7 +109,7 @@ Corso guards your cluster's eBPF programs the way a Cane Corso guards the herd.`
 			fmt.Println("Status: Running (requires DaemonSet)")
 			fmt.Println("Node: (set via NODE_NAME env)")
 			fmt.Println("")
-			fmt.Println("Use 'corso-ctl scan' to enumerate loaded eBPF programs")
+			fmt.Println("Use 'corsoctl scan' to enumerate loaded eBPF programs")
 			return nil
 		},
 	}

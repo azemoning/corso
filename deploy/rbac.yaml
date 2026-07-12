@@ -27,7 +27,7 @@ rules:
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["create", "patch"]
-  - apiGroups: ["bpfwatch.io"]
+  - apiGroups: ["corso.io"]
     resources: ["bpfprogramallowlists"]
     verbs: ["get", "list", "watch"]
 ---

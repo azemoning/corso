@@ -80,8 +80,10 @@ func (e *AlertEmitter) EmitViolation(state *ProgramState) {
 		},
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	_, err := e.clientset.CoreV1().Events(e.namespace).Create(
-		context.TODO(), event, metav1.CreateOptions{},
+		ctx, event, metav1.CreateOptions{},
 	)
 	if err != nil {
 		klog.Errorf("Failed to emit K8s event: %v", err)
@@ -111,8 +113,10 @@ func (e *AlertEmitter) EmitInfo(message string) {
 		},
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	_, err := e.clientset.CoreV1().Events(e.namespace).Create(
-		context.TODO(), event, metav1.CreateOptions{},
+		ctx, event, metav1.CreateOptions{},
 	)
 	if err != nil {
 		klog.Errorf("Failed to emit info event: %v", err)

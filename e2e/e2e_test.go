@@ -302,7 +302,7 @@ func TestAllowlistCRD(t *testing.T) {
 
 	// Create a BPFProgramAllowlist custom resource
 	allowlistYAML := `
-apiVersion: bpfwatch.io/v1alpha1
+apiVersion: corso.io/v1alpha1
 kind: BPFProgramAllowlist
 metadata:
   name: test-allowlist

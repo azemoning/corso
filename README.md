@@ -2,7 +2,7 @@
 
 Kubernetes-native eBPF program auditor. Detect and audit every eBPF program loaded on your cluster nodes, in real time.
 
-Named after the [Cane Corso](https://en.wikipedia.org/wiki/Cane_Corse), an Italian livestock guardian dog. Corso guards your cluster's eBPF programs the way a Cane Corso guards the herd. Your infrastructure is cattle, not pets.
+Named after the [Cane Corso](https://en.wikipedia.org/wiki/Cane_Corso), an Italian livestock guardian dog. Corso guards your cluster's eBPF programs the way a Cane Corso guards the herd. Your infrastructure is cattle, not pets.
 
 ## What it does
 
