@@ -4,12 +4,14 @@ import "fmt"
 
 // Logo returns the ASCII art logo for Corso
 func Logo() string {
-	return `_____                            
-\_   _ \  _________  ______  
+	return `
+_________                            
+\_   ___ \  ___________  __________  
 /    \  \/ /  _ \_  __ \/  ___/  _ \ 
-\     \___(  <_> )  |  \/\___ (  <_> )
+\     \___(  <_> )  | \/\___ (  <_> )
  \______  /\____/|__|  /____  >____/ 
-        \/                  \/`
+        \/                  \/       
+`
 }
 
 // Tagline returns the project tagline
